@@ -56,31 +56,24 @@ def bkng():
 
 def company():
 
-    q = {
-        "bool": {
-            # "filter": {"match": {"meta.symbol": "PRAX"}},
-            "filter": {"term": {"filename": "0001689548-25-000058"}},
-        }
-    }
+    # q = {
+    #     "bool": {
+    #         # "filter": {"match": {"meta.symbol": "PRAX"}},
+    #         "filter": {"term": {"filename": "0001689548-25-000058"}},
+    #     }
+    # }
 
-    # r = adtdatasources.es.ES(cfg.es_index).query_phrase(
-    #     "", "text", filter={"filename": "0001689548-25-000058"}
+    # body = {"query": q, "size": 1000}  # or a higher number to get more documents
+    # r = adtdatasources.es.ES("utest-edu").cnxn_es.search(index="utest-edu", body=body)
+    # r = adtdatasources.es.ES("utest-edu")._parse_query_results(
+    #     r, parse=True, as_df=False
     # )
-    # r = adtdatasources.es.ES(cfg.es_index).query_raw_query(q)
 
-    q = {
-        "bool": {
-            "filter": {"term": {"filename": "0001689548-25-000058"}},
-        }
-    }
-    body = {"query": q, "size": 1000}  # or a higher number to get more documents
-    r = adtdatasources.es.ES("utest-edu").cnxn_es.search(index="utest-edu", body=body)
-    r = adtdatasources.es.ES("utest-edu")._parse_query_results(
-        r, parse=True, as_df=False
-    )
+    # all_results = []
+    # chunks = common.chunk_text_from_es_results(r)
 
     all_results = []
-    chunks = common.chunk_text_from_es_results(r)
+    chunks = common.temp_data_chunks()
 
     for idx, chunk in enumerate(chunks):
         print(f"Processing chunk {idx + 1}/{len(chunks)}")
