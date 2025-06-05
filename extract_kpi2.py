@@ -78,7 +78,6 @@ Output the result as a JSON list of `EventCatalyst` objects, like:
     result: EventList = EventList.model_validate(structured_llm.invoke(llm_prompt))
 
     df_metrics = pd.DataFrame([e.model_dump() for e in result.events])
-    df_metrics.sort_values(by="company")
 
     return df_metrics
 

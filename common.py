@@ -10,8 +10,10 @@ def write_df_to_excel(df, file_path):
         print(f"An error occurred while writing the DataFrame to Excel: {e}")
 
 
-def chunk_text(text, chunk_size=12000, overlap=1000):
+def chunk_text_from_es_results(es_results, chunk_size=12000, overlap=5000):
+    full_text = " ".join(d.get("text", "") for d in es_results if "text" in d)
+
     chunks = []
-    for i in range(0, len(text), chunk_size - overlap):
-        chunks.append(text[i : i + chunk_size])
+    for i in range(0, len(full_text), chunk_size - overlap):
+        chunks.append(full_text[i : i + chunk_size])
     return chunks
