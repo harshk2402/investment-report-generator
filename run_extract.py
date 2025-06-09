@@ -73,7 +73,7 @@ def company():
     }
     r = adtdatasources.es.ES(cfg.es_index).query_raw_query(q)
 
-    metadata, chunks = common.chunk_text_from_es_results(r)
+    chunks = common.chunk_text_from_es_results(r)
 
     all_results = []
 
