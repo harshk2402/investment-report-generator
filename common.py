@@ -1,4 +1,5 @@
 import pandas as pd
+import re
 
 
 def write_df_to_excel(df, file_path):
@@ -10,7 +11,7 @@ def write_df_to_excel(df, file_path):
         print(f"An error occurred while writing the DataFrame to Excel: {e}")
 
 
-def chunk_text_from_es_results(es_results, chunk_size=12000, overlap=5000):
+def chunk_text_from_es_results(es_results, chunk_size=110000, overlap=20000):
     full_text = " ".join(d.get("text", "") for d in es_results if "text" in d)
 
     chunks = []
@@ -47,3 +48,17 @@ def temp_data_chunks():
     for i in range(0, len(all_text), chunk_size - overlap):
         chunks.append(all_text[i : i + chunk_size])
     return chunks
+
+
+def normalize_text(text: str) -> str:
+    # Replace multiple newlines with a double newline (paragraph breaks)
+    text = re.sub(r"\n\s*\n+", "\n\n", text)
+
+    # Replace single newlines within sentences with a space
+    text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+
+    # Remove excessive spaces
+    text = re.sub(r"[ \t]+", " ", text)
+
+    # Strip leading/trailing whitespace
+    return text.strip()

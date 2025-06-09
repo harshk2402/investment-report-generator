@@ -56,28 +56,33 @@ def bkng():
 
 def company():
 
-    # q = {
-    #     "bool": {
-    #         # "filter": {"match": {"meta.symbol": "PRAX"}},
-    #         "filter": {"term": {"filename": "0001689548-25-000058"}},
-    #     }
-    # }
+    q = {
+        "bool": {
+            "must": {
+                "span_near": {
+                    "clauses": [
+                        {"span_term": {"text": "ulixacaltamide"}},
+                        {"span_term": {"text": "expected"}},
+                    ],
+                    "slop": 10000,
+                    "in_order": True,
+                }
+            },
+            "filter": {"match": {"meta.symbol": "PRAX"}},
+        }
+    }
+    r = adtdatasources.es.ES(cfg.es_index).query_raw_query(q)
 
-    # body = {"query": q, "size": 1000}  # or a higher number to get more documents
-    # r = adtdatasources.es.ES("utest-edu").cnxn_es.search(index="utest-edu", body=body)
-    # r = adtdatasources.es.ES("utest-edu")._parse_query_results(
-    #     r, parse=True, as_df=False
-    # )
-
-    # all_results = []
-    # chunks = common.chunk_text_from_es_results(r)
+    metadata, chunks = common.chunk_text_from_es_results(r)
 
     all_results = []
-    chunks = common.temp_data_chunks()
 
     for idx, chunk in enumerate(chunks):
+        normalized_chunk = common.normalize_text(chunk)
         print(f"Processing chunk {idx + 1}/{len(chunks)}")
-        result = extract_kpi2.extract_kpi("Ulixacaltamide expected", chunk)
+        result = extract_kpi2.extract_kpi(
+            "Ulixacaltamide expected", normalized_chunk, {"company": "PRAX", "cik": ""}
+        )
         if result.size > 0:
             all_results.append(result)
 
@@ -87,7 +92,7 @@ def company():
     df_final.reset_index(drop=True, inplace=True)
 
     try:
-        common.write_df_to_excel(df_final, "metrics.xlsx")
+        common.write_df_to_excel(df_final, "kpi.xlsx")
     except Exception as e:
         print(f"Error writing DataFrame to Excel: {e}")
 

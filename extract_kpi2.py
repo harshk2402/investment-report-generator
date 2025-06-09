@@ -5,12 +5,18 @@ from schema import EventList, EventCatalyst
 from langchain_openai import ChatOpenAI
 import adtiam
 import os
+from typing import Dict
 
 adtiam.load_creds("adt-llm")
 os.environ["OPENAI_API_KEY"] = adtiam.creds["llm"]["openai"]
 
 
-def extract_kpi(search_metric, search_chunks, metadata=None):
+def extract_kpi(search_metric, search_chunks, metadata: Dict | None = None):
+    company = "not specified"
+    cik = "not specified"
+    if metadata:
+        company = metadata.get("company", "not specified")
+        cik = metadata.get("cik", "not specified")
 
     # Construct LLM prompt
     llm_prompt = f"""
@@ -26,11 +32,14 @@ You must output a **JSON list of objects** that conforms exactly to the schema b
 - Do **not duplicate** entries or fields across the output.
 - Return one object **per distinct drug program or clinical trial** described.
 - Be concise and consistent, but thorough — extract everything real, nothing imagined.
+- Treat strings as case-insensitive when comparing or grouping values (e.g., "Phase 2a" and "phase 2A" are the same).
 
 [schema]
 EventCatalyst:
-company: The name of the company / The exact name of Registrant as specified in its charter, e.g., Taysha Gene Therapies  
+company: The name of the company / The exact name of Registrant as specified in its charter. 
+Company name: {company} -> If not specified in text, fill this field from given data or leave as 'not specified'.
 cik: The SEC Central Index Key (CIK), e.g., 0001070081  
+cik: {cik} -> If not specified in text, fill this field from given data or leave as 'not specified'.
 drug: Name of the drug, e.g., ulixacaltamide  
 program: The indication or program, e.g., ENERGY Program  
 phase: Clinical phase only (exclude study name), e.g., Phase 2a  
@@ -144,3 +153,6 @@ Output the result as a JSON list of `EventCatalyst` objects, like:
 #     time_period: str
 #     metric_value: str
 #     explanation: str
+
+# company: The name of the company / The exact name of Registrant as specified in its charter.
+# cik: The SEC Central Index Key (CIK), e.g., 0001070081
