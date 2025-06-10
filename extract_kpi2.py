@@ -13,10 +13,10 @@ os.environ["OPENAI_API_KEY"] = adtiam.creds["llm"]["openai"]
 
 def extract_kpi(search_metric, search_chunks, metadata: Dict | None = None):
     company = "not specified"
-    cik = "not specified"
+    accession_number = "not specified"
     if metadata:
         company = metadata.get("company", "not specified")
-        cik = metadata.get("cik", "not specified")
+        accession_number = metadata.get("accession_number", "not specified")
 
     # Construct LLM prompt
     llm_prompt = f"""
@@ -38,8 +38,8 @@ You must output a **JSON list of objects** that conforms exactly to the schema b
 EventCatalyst:
 company: The name of the company / The exact name of Registrant as specified in its charter. 
 Company name: {company} -> If not specified in text, fill this field from given data or leave as 'not specified'.
-cik: The SEC Central Index Key (CIK), e.g., 0001070081  
-cik: {cik} -> If not specified in text, fill this field from given data or leave as 'not specified'.
+accession_number: The SEC Accession Number that uniquely identifies a specific filing submission, e.g., 0001689548-23-000044 
+accession_number: {accession_number} -> If not specified in text, fill this field from given data or leave as 'not specified'.
 drug: Name of the drug, e.g., ulixacaltamide  
 program: The indication or program, e.g., ENERGY Program  
 phase: Clinical phase only (exclude study name), e.g., Phase 2a  
@@ -89,70 +89,3 @@ Output the result as a JSON list of `EventCatalyst` objects, like:
     df_metrics = pd.DataFrame([e.model_dump() for e in result.events])
 
     return df_metrics
-
-
-# metric_name: states the name of the kpi to extracted. this should be as comprehensive as possible and take into account any hierarchical structure in a table or so where the name is split across different lines or grouped together.
-# metric_type: describes the type of metric, for example: growth_yoy for year over year growth, growth_qoq for quarter over quarter sequential growth, currency for dollar or other currency amounts, amount for a count or other numeric amount
-# metric_unit: extract the units for the table, for example m for millions, $m for $ in millions, % for percentage. Note that this information is often contained in the header or footer of the table.
-# time_period: describes the time period of the metric, for example: 2024Q1 for the first quarter of 2024, FY2024 for the year 2024, FYQ1 for the first quarter when year is not given
-# metric_value: the value of the metric, for example: 9% for 9 percent growth, 1000000 for 1 million dollars, 1000000000 for 1 billion amount
-# explanation: extract commentary about this number, for example why it has changed. this might be contained in a footnote to the table.
-
-# example:
-# {search_metric} | global room nights Europe | growth_yoy | % | 2024Q1 | 9% | due to higher retail pricing, partially offset by a higher mix of subscribers to wholesale offerings
-# {search_metric} | global room nights Americs | growth_yoy | % | 2024Q1 | 9% | Null
-# {search_metric} | global room nights Europe | growth_yoy | % | 2023Q1 | 9% | Null
-# {search_metric} | global room nights Americs | growth_yoy | % | 2023Q1 | 9% | Null
-# {search_metric} | Average Daily Rate Europe | currency | $ | 2024Q1 | $7.18 | due to higher retail pricing, partially offset by a higher mix of subscribers to wholesale offerings
-# {search_metric} | Average Daily Rate Americs | currency | $ | 2024Q1 | $7.18 | Null
-# {search_metric} | Average Daily Rate Europe | currency | $ | 2023Q1 | $7.18 | Null
-# {search_metric} | Average Daily Rate Americs | currency | $ | 2023Q1 | $7.18 | Null
-
-# extract all values the best you can do with the information provided. Fill with "Null" when one of the fields cannot be extracted.
-
-
-# [metrics]
-# {search_metric}
-
-# [format]
-# {' | '.join(KPIMetric.model_fields)}
-
-# return only the data in a pipe delimited string and nothing else.
-# Initialize OpenAI client
-# client = OpenAI(api_key=o3studio.settings.creds["openai"])
-# Make API call
-# completion = client.beta.chat.completions.parse(
-# completion = client.chat.completions.create(
-#     model="gpt-4o-2024-08-06",
-#     messages=[
-#         {
-#             "role": "system",
-#             "content": "Extract the KPI metric information from the provided text.",
-#         },
-#         {"role": "user", "content": llm_prompt},
-#     ],
-#     temperature=0,
-#     response_format=EventList,
-# )
-
-# Get the parsed result
-# result = completion.choices[0].message.content.strip()
-
-# Split the result into lines and create DataFrame
-# lines = [line.strip() for line in result.split("\n") if line.strip()]
-# df_metrics = pd.DataFrame(
-#     [line.split("|") for line in lines], columns=list(EventCatalyst.model_fields)
-# )
-
-
-# class KPIMetric(BaseModel):
-#     search_metric: str
-#     metric_name: str
-#     metric_type: str
-#     metric_unit: str
-#     time_period: str
-#     metric_value: str
-#     explanation: str
-
-# company: The name of the company / The exact name of Registrant as specified in its charter.
-# cik: The SEC Central Index Key (CIK), e.g., 0001070081

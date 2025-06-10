@@ -65,7 +65,7 @@ def company():
                         {"span_term": {"text": "expected"}},
                     ],
                     "slop": 10000,
-                    "in_order": True,
+                    "in_order": False,
                 }
             },
             "filter": {"match": {"meta.symbol": "PRAX"}},
@@ -78,10 +78,9 @@ def company():
     all_results = []
 
     for idx, chunk in enumerate(chunks):
-        normalized_chunk = common.normalize_text(chunk)
         print(f"Processing chunk {idx + 1}/{len(chunks)}")
         result = extract_kpi2.extract_kpi(
-            "Ulixacaltamide expected", normalized_chunk, {"company": "PRAX", "cik": ""}
+            "Ulixacaltamide expected", chunk, {"company": "PRAX", "cik": ""}
         )
         if result.size > 0:
             all_results.append(result)
@@ -98,14 +97,3 @@ def company():
 
 
 company()
-
-# "must": {
-#     "span_near": {
-#         "clauses": [
-#             {"span_term": {"text": "ulixacaltamide"}},
-#             {"span_term": {"text": "expected"}},
-#         ],
-#         "slop": 1000,
-#         "in_order": False,
-#     }
-# },
