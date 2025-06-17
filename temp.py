@@ -1,18 +1,14 @@
-import requests
-from bs4 import BeautifulSoup
+from google import genai
+import adtiam
 
-urls = [
-    "https://www.sec.gov/Archives/edgar/data/1689548/000168954825000058/prax-20250331.htm",
-    "https://www.sec.gov/Archives/edgar/data/1689548/000168954825000040/prax-20241231.htm",
-    "https://www.sec.gov/Archives/edgar/data/1689548/000168954824000101/prax-20240930.htm",
-    "https://www.sec.gov/Archives/edgar/data/1689548/000168954824000088/prax-20240630.htm",
-]
-headers = {"User-Agent": "BiotechCatalystBot/1.0 (your.email@domain.com)"}
-for url in urls:
-    response_html = requests.get(url, headers=headers)
-    if response_html.status_code != 200:
-        print(f"Failed to retrieve {url}. Status: {response_html.status_code}")
-        continue
+# adtiam.load_creds("utest")
 
-    soup = BeautifulSoup(response_html.text, "html.parser")
-    article_text = soup.get_text(separator="\n")
+client = genai.Client(api_key="AIzaSyCkLBPubQBiXS8XHNrRalS-jnTfzSozTGQ")
+
+model = client.models.get(model="gemini-2.0-flash")
+print(f"{model.input_token_limit=}")
+print(f"{model.output_token_limit=}")
+
+model = client.models.get(model="gemini-1.5-flash")
+print(f"{model.input_token_limit=}")
+print(f"{model.output_token_limit=}")

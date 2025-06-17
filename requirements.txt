@@ -7,3 +7,5 @@ langchain-openai
 pandas
 openpyxl
 beautifulsoup4
+google-genai
+python-dotenv

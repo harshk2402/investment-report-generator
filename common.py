@@ -11,7 +11,7 @@ def write_df_to_excel(df, file_path):
         print(f"An error occurred while writing the DataFrame to Excel: {e}")
 
 
-def chunk_text_from_es_results(es_results, chunk_size=110000, overlap=20000):
+def chunk_text_from_es_results(es_results, chunk_size=400000, overlap=50000):
     full_text = " ".join(d.get("text", "") for d in es_results if "text" in d)
     normalized_text = normalize_text(full_text)
 
@@ -55,15 +55,37 @@ def chunk_text_from_es_results(es_results, chunk_size=110000, overlap=20000):
 #     return chunks
 
 
+# def normalize_text(text: str) -> str:
+#     # Replace multiple newlines with a double newline (paragraph breaks)
+#     text = re.sub(r"\n\s*\n+", "\n\n", text)
+
+#     # Replace single newlines within sentences with a space
+#     text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
+
+#     # Remove excessive spaces
+#     text = re.sub(r"[ \t]+", " ", text)
+
+#     # Strip leading/trailing whitespace
+#     return text.strip()
+
+
 def normalize_text(text: str) -> str:
-    # Replace multiple newlines with a double newline (paragraph breaks)
+    # Step 0: Standardize all common newline representations to '\n'
+    # This is crucial for cross-platform compatibility and consistent regex matching later.
+    text = text.replace("\r\n", "\n")  # Windows newlines
+    text = text.replace("\r", "\n")  # Old Mac newlines
+
+    # Step 1: Replace multiple newlines with a double newline (paragraph breaks)
+    # This now operates on a consistent '\n' base, making it more reliable.
     text = re.sub(r"\n\s*\n+", "\n\n", text)
 
-    # Replace single newlines within sentences with a space
+    # Step 2: Replace single newlines within sentences with a space
+    # Also benefits from the standardized '\n' base.
     text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
 
-    # Remove excessive spaces
-    text = re.sub(r"[ \t]+", " ", text)
+    # Step 3: Remove excessive spaces (including tabs and non-breaking spaces)
+    # \xa0 is the Unicode for non-breaking space, common in web/document text.
+    text = re.sub(r"[ \t\xa0]+", " ", text)
 
-    # Strip leading/trailing whitespace
+    # Step 4: Strip leading/trailing whitespace from the entire text
     return text.strip()
