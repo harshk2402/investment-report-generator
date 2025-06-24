@@ -56,26 +56,30 @@ def bkng():
 
 def company():
 
-    q = {
-        "bool": {
-            "must": {
-                "span_near": {
-                    "clauses": [
-                        {"span_term": {"text": "ulixacaltamide"}},
-                        {"span_term": {"text": "expected"}},
-                    ],
-                    "slop": 10000,
-                    "in_order": False,
-                }
-            },
-            "filter": {"match": {"meta.symbol": "PRAX"}},
-        }
-    }
-    r = adtdatasources.es.ES(cfg.es_index).query_raw_query(q)
+    # q = {
+    #     "bool": {
+    #         "must": {
+    #             "span_near": {
+    #                 "clauses": [
+    #                     {"span_term": {"text": "ulixacaltamide"}},
+    #                     {"span_term": {"text": "expected"}},
+    #                 ],
+    #                 "slop": 10000,
+    #                 "in_order": False,
+    #             }
+    #         },
+    #         "filter": {"match": {"meta.symbol": "PRAX"}},
+    #     }
+    # }
+    # r = adtdatasources.es.ES(cfg.es_index).query_raw_query(q)
 
-    chunks = common.chunk_text_from_es_results(r)
-
+    # chunks = common.chunk_text_from_es_results(r)
+    chunks = common.get_relevant_chunks(
+        common.temp_data_chunks(), "Ulixacaltamide expected", top_k=9
+    )
     all_results = []
+
+    chunks = common.rechunk(chunks, chunk_size=500000, overlap=50000)
 
     for idx, chunk in enumerate(chunks):
         print(f"Processing chunk {idx + 1}/{len(chunks)}")
@@ -91,7 +95,7 @@ def company():
     df_final.reset_index(drop=True, inplace=True)
 
     try:
-        common.write_df_to_excel(df_final, "kpi.xlsx")
+        common.write_df_to_excel(df_final, "kpi_vector.xlsx")
     except Exception as e:
         print(f"Error writing DataFrame to Excel: {e}")
 

@@ -38,7 +38,7 @@ You must output a **JSON list of objects** that conforms exactly to the schema b
 - If a field's information is not present, return the string `'not specified'` (not `null`, empty, or missing).
 - Do **not infer**, **assume**, or **hallucinate** any data. Only report what is clearly given.
 - Do **not duplicate** entries or fields across the output.
-- **Return one object per distinct drug development program or major clinical trial ONLY IF that program or trial is directly relevant to (strictly requiring an explicit mention or a very strong, unambiguous contextual link), or explicitly mentions, the metrics provided in `{search_metric}`.** For each such relevant program/trial, a "distinct" object is warranted for each:
+- IMPORTANT: **Return one object per distinct drug development program or major clinical trial ONLY IF that program or trial is directly relevant to (strictly requiring an explicit mention or a very strong, unambiguous contextual link), or explicitly mentions, the metrics provided in `{search_metric}`.** For each such relevant program/trial, a "distinct" object is warranted for each:
     - **Unique drug candidate** (a different molecule, biologic, or therapeutic modality).
     - **New disease indication** being pursued for an existing drug candidate.
     - **Major, separately-named clinical trial** (e.g., a pivotal proof-of-concept, Phase 2b, or Phase 3 study) even for an existing drug-indication pair, as these represent discrete, high-impact data readouts and potential value inflection points.
