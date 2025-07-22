@@ -2,6 +2,12 @@ import pandas as pd
 import re
 from sentence_transformers import SentenceTransformer, util
 import torch
+import requests
+import time
+import adtiam
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from collections import defaultdict
 
 
 def write_df_to_excel(df, file_path):
@@ -25,17 +31,6 @@ def chunk_text_from_es_results(es_results, chunk_size=400000, overlap=50000):
         chunks.append(normalized_text[i : i + chunk_size])
     print(len(normalized_text))
     return chunks
-
-
-def rechunk(chunks: list[str], chunk_size=500000, overlap=50000):
-    """
-    Rechunk the text chunks to ensure they are within the specified size limits.
-    """
-    normalized_text = normalize_text(" ".join(chunks))
-    new_chunks = []
-    for i in range(0, len(normalized_text), chunk_size - overlap):
-        new_chunks.append(normalized_text[i : i + chunk_size])
-    return new_chunks
 
 
 def temp_data_chunks():
@@ -71,39 +66,6 @@ def temp_data_chunks():
     return chunks
 
 
-def get_relevant_chunks(chunks: list[str], search_metric: str, top_k=9):
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-
-    chunk_embeddings = model.encode(
-        chunks, show_progress_bar=True, convert_to_tensor=True
-    )
-    search_embedding = model.encode(search_metric, convert_to_tensor=True)
-
-    cos_scores = util.cos_sim(chunk_embeddings, search_embedding).squeeze()
-
-    n_closest = min(cos_scores.shape[0], top_k)
-
-    top_results = torch.topk(cos_scores, k=n_closest, largest=True, sorted=True)
-
-    top_chunks = [chunks[idx] for idx in top_results.indices]
-    total_top_length = sum(len(chunk) for chunk in top_chunks)
-    return top_chunks
-
-
-# def normalize_text(text: str) -> str:
-#     # Replace multiple newlines with a double newline (paragraph breaks)
-#     text = re.sub(r"\n\s*\n+", "\n\n", text)
-
-#     # Replace single newlines within sentences with a space
-#     text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
-
-#     # Remove excessive spaces
-#     text = re.sub(r"[ \t]+", " ", text)
-
-#     # Strip leading/trailing whitespace
-#     return text.strip()
-
-
 def normalize_text(text: str) -> str:
     # Step 0: Standardize all common newline representations to '\n'
     # This is crucial for cross-platform compatibility and consistent regex matching later.
@@ -124,3 +86,132 @@ def normalize_text(text: str) -> str:
 
     # Step 4: Strip leading/trailing whitespace from the entire text
     return text.strip()
+
+
+def get_filing_sections(ticker="PRAX") -> tuple:
+    sec_api_key = adtiam.creds["sources"]["secapid2v"]["key"]
+
+    company_data = {
+        "MNMD": {"cik": "0001813814", "name": "Mind Medicine (MindMed) Inc"},
+        "PTCT": {"cik": "0001070081", "name": "PTC Therapeutics Inc"},
+        "BIIB": {"cik": "0000875045", "name": "Biogen Inc"},
+        "GILD": {"cik": "0000882095", "name": "Gilead Sciences Inc"},
+        "VRTX": {"cik": "0000875320", "name": "Vertex Pharmaceuticals Inc"},
+        "PRAX": {"cik": "0001689548", "name": "Praxis Precision Medicines Inc"},
+    }
+
+    company_name = company_data.get(ticker, {}).get("name", ticker)
+
+    # Find 10-K/10-Q filings
+    query_url = f"https://api.sec-api.io?token={sec_api_key}"
+    query_payload = {
+        "query": f'ticker:{ticker} AND (formType:"10-K" OR formType:"10-Q")',
+        "from": 0,
+        "size": 10,
+        "sort": [{"filedAt": {"order": "desc"}}],
+    }
+    # query_payload = {
+    #     "query": f"ticker:{ticker}",
+    #     "from": 0,
+    #     "size": 100,
+    #     "sort": [{"filedAt": {"order": "desc"}}],
+    # }
+
+    print(f"  Finding latest 10-K filing for {ticker}...")
+    query_response = requests.post(
+        query_url, json=query_payload, headers={"Content-Type": "application/json"}
+    )
+    metadata = []
+    query_data = query_response.json()
+
+    documents_texts = []
+    documents_metadata = []
+
+    for filing in query_data.get("filings", []):
+        form_type = filing.get("formType", "")
+        if form_type not in ("10-K", "10-Q"):
+            continue
+
+        filing_url = filing["linkToFilingDetails"]
+
+        # Extract sections
+        filing_metadata = {
+            "accession": filing.get("accessionNo", ""),
+            "filing_date": filing.get("filedAt", ""),
+            "company_name": company_name,
+            "form_type": form_type,
+            "ticker": ticker,
+            "cik": company_data.get(ticker, {}).get("cik", ""),
+        }
+        metadata.append(filing_metadata)
+        if form_type == "10-K":
+            sections_to_extract = ["1", "1A", "2", "3", "7"]
+        elif form_type == "10-Q":
+            sections_to_extract = [
+                "part1item2",  # MD&A ✅
+                "part2item1",  # Legal Proceedings ✅
+                "part2item1a",  # Risk Factors ✅
+                "part2item5",  # Other Information ✅
+                "part1item1",  # (Optional) Financials, for spending patterns
+            ]  # Use alias to distinguish MD&A
+        extractor_base_url = f"https://api.sec-api.io/extractor?token={sec_api_key}"
+
+        filing_text = ""
+        for section in sections_to_extract:
+            section_params = {"url": filing_url, "item": section, "type": "text"}
+            section_response = requests.get(extractor_base_url, params=section_params)
+            if section_response.status_code == 200:
+                section_text = section_response.text
+                if section_text and section_text.strip():
+                    filing_text += f"\n\n=== ITEM {section} ===\n{section_text}"
+
+            time.sleep(0.5)
+
+        # Clean text for this filing
+        filing_text = re.sub(r"<[^>]+>", " ", filing_text)
+        filing_text = re.sub(r"\s+", " ", filing_text)
+        filing_text = normalize_text(filing_text)
+
+        documents_texts.append(filing_text)
+        documents_metadata.append(filing_metadata)
+
+    return documents_texts, documents_metadata
+
+
+def format_documents_for_prompt(
+    documents: list[Document], chunk_size: int = 900000, chunk_overlap: int = 0
+) -> list[str]:
+    grouped = defaultdict(list)
+
+    for doc in documents:
+        meta = doc.metadata
+        key = (
+            meta.get("company_name", ""),
+            meta.get("form_type", ""),
+            meta.get("filing_date", ""),
+            meta.get("accession", ""),
+        )
+        grouped[key].append(doc.page_content)
+
+    output_lines = []
+    for key, chunks in grouped.items():
+        company_name, form_type, filing_date, accession = key
+        output_lines.append(f"Company Name: {company_name}")
+        output_lines.append(f"Form Type: {form_type}")
+        output_lines.append(f"Filing Date: {filing_date}")
+        output_lines.append(f"Accession: {accession}")
+        output_lines.append("")
+        for chunk in chunks:
+            output_lines.append("--- TEXT START ---")
+            output_lines.append(chunk)
+            output_lines.append("--- TEXT END ---")
+            output_lines.append("")
+
+    output = "\n".join(output_lines)
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    )
+    chunks = splitter.split_text(output)
+
+    return chunks

@@ -3,6 +3,7 @@ import adtdatasources.es
 import extract_kpi2
 import common
 import pandas as pd
+from faiss_manager import FAISSManager
 
 
 def dis():
@@ -55,37 +56,24 @@ def bkng():
 
 
 def company():
+    search_metric = "all clinical trial activity, study results, and regulatory events"
 
-    # q = {
-    #     "bool": {
-    #         "must": {
-    #             "span_near": {
-    #                 "clauses": [
-    #                     {"span_term": {"text": "ulixacaltamide"}},
-    #                     {"span_term": {"text": "expected"}},
-    #                 ],
-    #                 "slop": 10000,
-    #                 "in_order": False,
-    #             }
-    #         },
-    #         "filter": {"match": {"meta.symbol": "PRAX"}},
-    #     }
-    # }
-    # r = adtdatasources.es.ES(cfg.es_index).query_raw_query(q)
+    filings, metadatas = common.get_filing_sections("PRAX")
 
-    # chunks = common.chunk_text_from_es_results(r)
-    chunks = common.get_relevant_chunks(
-        common.temp_data_chunks(), "Ulixacaltamide expected", top_k=9
+    vector_store = FAISSManager()
+    vector_store.add_filings(filings, metadatas)
+    documents = vector_store.similarity_search_with_context(
+        search_metric, k=35, window=2
     )
-    all_results = []
 
-    chunks = common.rechunk(chunks, chunk_size=500000, overlap=50000)
+    all_results = []
+    chunks = common.format_documents_for_prompt(
+        documents, chunk_size=900000, chunk_overlap=0
+    )
 
     for idx, chunk in enumerate(chunks):
         print(f"Processing chunk {idx + 1}/{len(chunks)}")
-        result = extract_kpi2.extract_kpi(
-            "Ulixacaltamide expected", chunk, {"company": "PRAX", "cik": ""}
-        )
+        result = extract_kpi2.extract_kpi(search_metric, chunk)
         if result.size > 0:
             all_results.append(result)
 
@@ -95,7 +83,7 @@ def company():
     df_final.reset_index(drop=True, inplace=True)
 
     try:
-        common.write_df_to_excel(df_final, "kpi_vector.xlsx")
+        common.write_df_to_excel(df_final, "kpi_vector_langchain.xlsx")
     except Exception as e:
         print(f"Error writing DataFrame to Excel: {e}")
 
