@@ -8,6 +8,7 @@ import adtiam
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from collections import defaultdict
+from datetime import datetime
 
 
 def write_df_to_excel(df, file_path):
@@ -88,7 +89,7 @@ def normalize_text(text: str) -> str:
     return text.strip()
 
 
-def get_filing_sections(ticker="PRAX") -> tuple:
+def get_filing_sections(ticker="PRAX", start_date="2025-01-01") -> tuple:
     sec_api_key = adtiam.creds["sources"]["secapid2v"]["key"]
 
     company_data = {
@@ -102,14 +103,24 @@ def get_filing_sections(ticker="PRAX") -> tuple:
 
     company_name = company_data.get(ticker, {}).get("name", ticker)
 
+    today = datetime.today()
+
+    print(f"\nFetching 10-Q filings for {ticker} (since {start_date})...")
+
     # Find 10-K/10-Q filings
     query_url = f"https://api.sec-api.io?token={sec_api_key}"
     query_payload = {
-        "query": f'ticker:{ticker} AND (formType:"10-K" OR formType:"10-Q")',
+        "query": f'ticker:{ticker} AND formType:"10-Q" AND filedAt:[{start_date} TO {today.strftime("%Y-%m-%d")}]',
         "from": 0,
-        "size": 10,
         "sort": [{"filedAt": {"order": "desc"}}],
     }
+    # query_url = f"https://api.sec-api.io?token={sec_api_key}"
+    # query_payload = {
+    #     "query": f'ticker:{ticker} AND (formType:"10-K" OR formType:"10-Q")',
+    #     "from": 0,
+    #     "size": 10,
+    #     "sort": [{"filedAt": {"order": "desc"}}],
+    # }
     # query_payload = {
     #     "query": f"ticker:{ticker}",
     #     "from": 0,
@@ -117,7 +128,6 @@ def get_filing_sections(ticker="PRAX") -> tuple:
     #     "sort": [{"filedAt": {"order": "desc"}}],
     # }
 
-    print(f"  Finding latest 10-K filing for {ticker}...")
     query_response = requests.post(
         query_url, json=query_payload, headers={"Content-Type": "application/json"}
     )
@@ -126,6 +136,10 @@ def get_filing_sections(ticker="PRAX") -> tuple:
 
     documents_texts = []
     documents_metadata = []
+
+    print(
+        "Retrieved", len(query_data.get("filings", [])), "filings for ticker:", ticker
+    )
 
     for filing in query_data.get("filings", []):
         form_type = filing.get("formType", "")
@@ -164,6 +178,10 @@ def get_filing_sections(ticker="PRAX") -> tuple:
                 section_text = section_response.text
                 if section_text and section_text.strip():
                     filing_text += f"\n\n=== ITEM {section} ===\n{section_text}"
+            else:
+                print(
+                    f"Failed to extract section {section} from {filing_url}. Status: {section_response.status_code}"
+                )
 
             time.sleep(0.5)
 
@@ -174,6 +192,8 @@ def get_filing_sections(ticker="PRAX") -> tuple:
 
         documents_texts.append(filing_text)
         documents_metadata.append(filing_metadata)
+
+    print(f"Extracted {len(documents_texts)} sections from {ticker} filings.")
 
     return documents_texts, documents_metadata
 

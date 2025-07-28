@@ -65,18 +65,29 @@ class FAISSManager:
             self.index.save_local(self.index_path)
             print(f"Saved FAISS index to {self.index_path}")
 
-    def add_filings(self, filings, metadatas):
+    def add_filings(self, filings, metadatas, isPressRelease=False):
+        print()
         splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         new_documents = []
-
         for filing_text, metadata in zip(filings, metadatas):
-            accession = metadata.get("accession")
-            form_type = metadata.get("form_type")
-            filing_date = metadata.get("filing_date")
+            ticker = metadata.get("ticker")
+            if not isPressRelease:
+                accession = metadata.get("accession")
+                form_type = metadata.get("form_type")
+                filing_date = metadata.get("filing_date")
 
-            if self.hash_tracker.is_indexed(accession, form_type, filing_date):
-                print(f"Skipping already indexed filing {accession}")
-                continue
+                if self.hash_tracker.is_indexed(accession, form_type, filing_date):
+                    print(f"Skipping already indexed filing {accession}")
+                    continue
+
+            else:
+                ticker = ticker
+                form_type = "press release"
+                filing_date = metadata.get("filing_date")
+
+                if self.hash_tracker.is_indexed(ticker, form_type, filing_date):
+                    print(f"Skipping already indexed filing {ticker}")
+                    continue
 
             # Chunk filing text
             chunks = splitter.split_text(filing_text)
@@ -89,7 +100,12 @@ class FAISSManager:
                 docs.append(Document(page_content=chunk, metadata=chunk_metadata))
 
             new_documents.extend(docs)
-            self.hash_tracker.mark_indexed(accession, form_type, filing_date)
+
+            if not isPressRelease:
+                self.hash_tracker.mark_indexed(accession, form_type, filing_date)
+            else:
+                ticker = ticker
+                self.hash_tracker.mark_indexed(ticker, form_type, filing_date)
 
         if not new_documents:
             print("No new filings to add.")
@@ -99,7 +115,7 @@ class FAISSManager:
             print(f"Building new FAISS index with {len(new_documents)} chunks...")
             self.index = FAISS.from_documents(new_documents, self.embedding_model)
         else:
-            print(f"Adding {len(new_documents)} new chunks to existing FAISS index...")
+            print(f"Adding {len(new_documents)} chunks to existing FAISS index...")
             self.index.add_documents(new_documents)
 
         self.save_index()
@@ -110,6 +126,9 @@ class FAISSManager:
         return self.index.similarity_search(query, k=k)
 
     def similarity_search_with_context(self, query, k=35, window=1):
+        print(
+            f"Searching for '{query}' and retrieving top {k} chunks with window {window}..."
+        )
         if self.index is None:
             raise RuntimeError("FAISS index is not built yet.")
 
@@ -141,6 +160,8 @@ class FAISSManager:
                     if neighbor_doc:
                         key = (filing_id, neighbor_idx)
                         expanded_chunks[key] = neighbor_doc
+
+        print(f"Found {len(expanded_chunks)} chunks")
 
         # Step 5: Return as list (sorted by filing and chunk index if desired)
         return sorted(

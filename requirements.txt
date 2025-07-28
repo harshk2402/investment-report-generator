@@ -13,3 +13,5 @@ sentence-transformers
 langchain-text-splitters
 langchain-community
 faiss-cpu
+google-generativeai
+selenium
