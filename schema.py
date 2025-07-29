@@ -1,5 +1,5 @@
 from pydantic import Field, BaseModel
-from typing import List
+from typing import Dict, List, Optional
 
 
 class EventCatalyst(BaseModel):
@@ -86,3 +86,14 @@ class ResponseFormatter(BaseModel):
 
     answer: str = Field(description="The answer to the user's question")
     followup_question: str = Field(description="A followup question the user could ask")
+
+
+class ValidationFeedback(BaseModel):
+    is_accurate: bool = Field(
+        description="True if the extracted data is fully accurate and complete according to the original text, False otherwise."
+    )
+    corrected_data: Optional[EventList] = Field(
+        None,
+        description="The corrected EventList object if inaccuracies were found and corrected. "
+        "Provide the full, corrected EventList structure here. If no corrections are needed, this field should be null.",
+    )

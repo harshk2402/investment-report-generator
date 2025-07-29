@@ -1,17 +1,152 @@
 import pandas as pd
 from pydantic import BaseModel
-from schema import EventList, EventCatalyst
+from schema import EventList, ValidationFeedback
 import adtiam
 import os
-from typing import Dict
+from typing import Dict, List
 from google import genai
 import json
 from datetime import datetime
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+from langchain_google_genai import ChatGoogleGenerativeAI
+import common
+import math
+import time
 
 load_dotenv()
 adtiam.load_creds("adt-llm")
 os.environ["OPENAI_API_KEY"] = adtiam.creds["llm"]["openai"]
+
+
+def get_validation_prompt(
+    original_text_chunks: List[str], extracted_data: EventList
+) -> str:
+    today = datetime.now()
+    formatted_date = today.strftime("%Y-%m-%d")
+
+    validation_prompt = f"""
+You are an expert biomedical research analyst with a meticulous eye for detail.
+Your task is to **validate** the provided `extracted_data` against the `original_source_text`.
+
+Strictly follow these rules for validation:
+- **Accuracy Check:** Verify every piece of information in the `extracted_data` against the `original_source_text` based on the original extraction rules:
+  - **Hallucination Check:** Is all extracted information **explicitly stated, unambiguously implied, or correctly and reasonably inferable** from the `original_source_text`?  Report if any data is not clearly supported by the text.
+  - **Completeness Check:** Is all relevant information from the `original_source_text` that **should have been extracted according to the initial extraction schema's rules** present in the `extracted_data`? Report any missing relevant data.
+  - **Value Accuracy Check:** Are all extracted values precisely as stated or accurately derived from the `original_source_text` (e.g., correct numbers, dates, statuses)? Report any inaccuracies.
+- **Schema Adherence:** Ensure the `extracted_data` fully conforms to the `EventList` and `EventCatalyst` schema definitions (e.g., correct field names, data types, use of 'not specified' where appropriate).
+- **Correction:** If any inaccuracies, missing data, or hallucinations are found, provide a `corrected_data` field in your output.
+  - The `corrected_data` field should contain the *entire*, revised `EventList` object with all necessary corrections applied, strictly adhering to the original extraction rules.
+  - If no corrections are needed (i.e., `is_accurate` is True), this field should be `null`.
+- **Feedback Structure:** Output a JSON object conforming exactly to the `ValidationFeedback` schema below.
+  - IMPORTANT: If `is_accurate` is False, the `issues_found` list must contain detailed descriptions of each issue.
+  - For each issue, specify its `type` (e.g., 'missing_data', 'hallucination', 'inaccurate_value', 'schema_violation') and a clear `description` including suggested corrections.
+  - If `is_accurate` is True, `issues_found` must be an empty list `[]`.
+
+Current Date: {formatted_date}
+
+[Original Source Text]
+{" ".join(original_text_chunks)}
+
+[Extracted Data (JSON)]
+{json.dumps(extracted_data.model_dump(), indent=2)}
+
+[ValidationFeedback Schema]
+{ValidationFeedback.model_json_schema()}
+
+Output the result as a JSON object of `ValidationFeedback`.
+"""
+
+    print(len(validation_prompt), " - characters in validation prompt")
+
+    return validation_prompt
+
+
+def batched_validate_output(search_chunks: List[str], result: EventList, batch_size=5):
+
+    df_metrics = pd.DataFrame()
+    os.environ["GOOGLE_API_KEY"] = os.getenv("google_api_key3") or "your_api_key_here"
+
+    client = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0)
+    structured_client = client.with_structured_output(ValidationFeedback)
+
+    validated_events = []
+    all_events = result.events
+    total_batches = math.ceil(len(all_events) / batch_size)
+
+    print("\nUsing Gemini API to validate KPIs (batched)...")
+
+    for i in range(total_batches):
+        batch_events = all_events[i * batch_size : (i + 1) * batch_size]
+        partial_result = EventList(events=batch_events)
+        validation_prompt = get_validation_prompt(search_chunks, partial_result)
+
+        try:
+            validation_response = structured_client.invoke(validation_prompt)
+
+            if validation_response:
+                validation_result = ValidationFeedback.model_validate(
+                    validation_response
+                )
+
+                if validation_result.is_accurate:
+                    validated_events.extend(batch_events)
+                else:
+                    if validation_result.corrected_data:
+                        corrected = EventList.model_validate(
+                            validation_result.corrected_data
+                        )
+                        validated_events.extend(corrected.events)
+                    else:
+                        validated_events.extend(batch_events)
+        except Exception as e:
+            print(f"Validation error in batch {i+1}: {e}")
+            validated_events.extend(batch_events)  # fallback: accept originals
+
+        time.sleep(0.5)
+
+    df_metrics = pd.DataFrame([e.model_dump() for e in validated_events])
+    return df_metrics
+
+
+def validate_output(search_chunks: List[str], result: EventList):
+    df_metrics = pd.DataFrame()
+    os.environ["GOOGLE_API_KEY"] = os.getenv("google_api_key3") or "your_api_key_here"
+    original_result_df = pd.DataFrame([e.model_dump() for e in result.events])
+
+    client = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0)
+    structured_client = client.with_structured_output(ValidationFeedback)
+
+    validation_prompt = get_validation_prompt(search_chunks, result)
+
+    print("\nUsing Gemini API to validate KPIs...")
+    validation_response = structured_client.invoke(validation_prompt)
+
+    if validation_response:
+        validation_result = ValidationFeedback.model_validate(validation_response)
+    else:
+        print("No validation response received.")
+        return original_result_df
+
+    if not validation_result.is_accurate:
+        if validation_result.corrected_data:
+            print("Corrected data provided.")
+
+            corrected_result = EventList.model_validate(
+                validation_result.corrected_data
+            )
+
+            df_metrics = pd.DataFrame([e.model_dump() for e in corrected_result.events])
+
+        else:
+            print("No corrections needed.")
+            df_metrics = original_result_df
+
+    else:
+        print("Validation successful, no issues found.")
+        df_metrics = original_result_df
+
+    return df_metrics
 
 
 def extract_kpi(search_metric, search_chunks):
@@ -88,32 +223,41 @@ Output the result as a JSON list of `EventCatalyst` objects, like:
     # result: EventList = EventList.model_validate(structured_llm.invoke(llm_prompt))
 
     # df_metrics = pd.DataFrame([e.model_dump() for e in result.events])
+    print()
     print(len(llm_prompt), " - characters in prompt")
+    print("Using Gemini API to extract KPIs...")
 
-    client = genai.Client(api_key=os.getenv("google_api_key"))
-
+    # client = genai.Client(api_key=os.getenv("google_api_key"))
     # response = client.models.generate_content(
-    #     model="gemini-2.0-flash",
+    #     model="gemini-2.5-flash-preview-05-20",
     #     contents=llm_prompt,
     #     config={
     #         "response_mime_type": "application/json",
     #         "response_schema": EventList.model_json_schema(),
     #     },
     # )
-    response = client.models.generate_content(
-        model="gemini-2.5-flash-preview-05-20",
-        contents=llm_prompt,
-        config={
-            "response_mime_type": "application/json",
-            "response_schema": EventList.model_json_schema(),
-        },
-    )
+    os.environ["GOOGLE_API_KEY"] = os.getenv("google_api_key") or "your_api_key_here"
+    client = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0)
+    structured_client = client.with_structured_output(EventList)
+
+    response = structured_client.invoke(llm_prompt)
+
     result = None
+
+    result = EventList.model_validate(response)
+
+    os.makedirs("output", exist_ok=True)
+    common.write_df_to_excel(
+        pd.DataFrame([e.model_dump() for e in result.events]),
+        "./output/kpi_original.xlsx",
+    )
+
     df_metrics = pd.DataFrame()
 
-    if response.text:
-        response_json = json.loads(response.text)
-    if response_json:
-        result = EventList.model_validate(response_json)
-        df_metrics = pd.DataFrame([e.model_dump() for e in result.events])
+    if result and result.events:
+        df_metrics = batched_validate_output(search_chunks, result, 5)
+
+    else:
+        print("No events found in the response.")
+
     return df_metrics

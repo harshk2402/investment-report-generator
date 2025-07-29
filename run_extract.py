@@ -99,7 +99,7 @@ def company():
     df_final.reset_index(drop=True, inplace=True)
 
     try:
-        common.write_df_to_excel(df_final, "kpi_vector_langchain.xlsx")
+        common.write_df_to_excel(df_final, "./output/kpi_validated.xlsx")
     except Exception as e:
         print(f"Error writing DataFrame to Excel: {e}")
 
