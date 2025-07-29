@@ -3,7 +3,15 @@ sec-api
 https://storage.googleapis.com/adt-devops-pypi/packages/d6tflow2-24.9.28-py3-none-any.whl
 https://storage.googleapis.com/adt-devops-pypi/packages/adtdatasources-25.5.12-py3-none-any.whl
 https://storage.googleapis.com/adt-devops-pypi/packages/adtiam-25.6.1-py3-none-any.whl
-langchain-openai
+langchain-google-genai
 pandas
 openpyxl
 beautifulsoup4
+google-genai
+python-dotenv
+sentence-transformers
+langchain-text-splitters
+langchain-community
+faiss-cpu
+google-generativeai
+selenium
