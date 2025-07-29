@@ -1,7 +1,6 @@
+import hashlib
 import pandas as pd
 import re
-from sentence_transformers import SentenceTransformer, util
-import torch
 import requests
 import time
 import adtiam
@@ -20,56 +19,8 @@ def write_df_to_excel(df, file_path):
         print(f"An error occurred while writing the DataFrame to Excel: {e}")
 
 
-def chunk_text_from_es_results(es_results, chunk_size=400000, overlap=50000):
-    full_text = " ".join(d.get("text", "") for d in es_results if "text" in d)
-    normalized_text = normalize_text(full_text)
-
-    # filename
-    # meta -> symbol
-
-    chunks = []
-    for i in range(0, len(normalized_text), chunk_size - overlap):
-        chunks.append(normalized_text[i : i + chunk_size])
-    print(len(normalized_text))
-    return chunks
-
-
-def temp_data_chunks():
-    import requests
-    from bs4 import BeautifulSoup
-
-    urls = [
-        "https://www.sec.gov/Archives/edgar/data/1689548/000168954825000058/prax-20250331.htm",
-        "https://www.sec.gov/Archives/edgar/data/1689548/000168954825000040/prax-20241231.htm",
-        "https://www.sec.gov/Archives/edgar/data/1689548/000168954824000101/prax-20240930.htm",
-        "https://www.sec.gov/Archives/edgar/data/1689548/000168954824000088/prax-20240630.htm",
-    ]
-    all_text = ""
-    headers = {"User-Agent": "BiotechCatalystBot/1.0 (your.email@domain.com)"}
-    for url in urls:
-        response_html = requests.get(url, headers=headers)
-        if response_html.status_code != 200:
-            print(f"Failed to retrieve {url}. Status: {response_html.status_code}")
-            continue
-
-        soup = BeautifulSoup(response_html.text, "html.parser")
-        all_text += soup.get_text(separator="\n") + "\n"
-
-    normalized_text = normalize_text(all_text)
-    norm_text_len = len(normalized_text)
-
-    chunks = []
-    chunk_size = 50000
-    overlap = 10000
-
-    for i in range(0, len(normalized_text), chunk_size - overlap):
-        chunks.append(all_text[i : i + chunk_size])
-    return chunks
-
-
 def normalize_text(text: str) -> str:
     # Step 0: Standardize all common newline representations to '\n'
-    # This is crucial for cross-platform compatibility and consistent regex matching later.
     text = text.replace("\r\n", "\n")  # Windows newlines
     text = text.replace("\r", "\n")  # Old Mac newlines
 
@@ -114,19 +65,6 @@ def get_filing_sections(ticker="PRAX", start_date="2025-01-01") -> tuple:
         "from": 0,
         "sort": [{"filedAt": {"order": "desc"}}],
     }
-    # query_url = f"https://api.sec-api.io?token={sec_api_key}"
-    # query_payload = {
-    #     "query": f'ticker:{ticker} AND (formType:"10-K" OR formType:"10-Q")',
-    #     "from": 0,
-    #     "size": 10,
-    #     "sort": [{"filedAt": {"order": "desc"}}],
-    # }
-    # query_payload = {
-    #     "query": f"ticker:{ticker}",
-    #     "from": 0,
-    #     "size": 100,
-    #     "sort": [{"filedAt": {"order": "desc"}}],
-    # }
 
     query_response = requests.post(
         query_url, json=query_payload, headers={"Content-Type": "application/json"}
@@ -235,3 +173,11 @@ def format_documents_for_prompt(
     chunks = splitter.split_text(output)
 
     return chunks
+
+
+def event_identity_key(event) -> str:
+    """Returns a hash of stable identifying fields to detect semantically duplicate events."""
+    key_str = (
+        f"{event.accession_number}|{event.drug}|{event.study}|{event.phase}".lower()
+    )
+    return hashlib.md5(key_str.encode("utf-8")).hexdigest()

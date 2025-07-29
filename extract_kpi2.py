@@ -1,14 +1,11 @@
 import pandas as pd
-from pydantic import BaseModel
 from schema import EventList, ValidationFeedback
 import adtiam
 import os
-from typing import Dict, List
-from google import genai
+from typing import List
 import json
 from datetime import datetime
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
 import common
 import math
@@ -71,6 +68,7 @@ def batched_validate_output(search_chunks: List[str], result: EventList, batch_s
     structured_client = client.with_structured_output(ValidationFeedback)
 
     validated_events = []
+    seen_keys = set()
     all_events = result.events
     total_batches = math.ceil(len(all_events) / batch_size)
 
@@ -88,17 +86,20 @@ def batched_validate_output(search_chunks: List[str], result: EventList, batch_s
                 validation_result = ValidationFeedback.model_validate(
                     validation_response
                 )
+                # Choose corrected data if inaccurate, else use original batch
+                events_to_add = (
+                    EventList.model_validate(validation_result.corrected_data).events
+                    if not validation_result.is_accurate
+                    and validation_result.corrected_data
+                    else batch_events
+                )
 
-                if validation_result.is_accurate:
-                    validated_events.extend(batch_events)
-                else:
-                    if validation_result.corrected_data:
-                        corrected = EventList.model_validate(
-                            validation_result.corrected_data
-                        )
-                        validated_events.extend(corrected.events)
-                    else:
-                        validated_events.extend(batch_events)
+                # Deduplicate based on identity key
+                for event in events_to_add:
+                    key = common.event_identity_key(event)
+                    if key not in seen_keys:
+                        validated_events.append(event)
+                        seen_keys.add(key)
         except Exception as e:
             print(f"Validation error in batch {i+1}: {e}")
             validated_events.extend(batch_events)  # fallback: accept originals
@@ -106,46 +107,6 @@ def batched_validate_output(search_chunks: List[str], result: EventList, batch_s
         time.sleep(0.5)
 
     df_metrics = pd.DataFrame([e.model_dump() for e in validated_events])
-    return df_metrics
-
-
-def validate_output(search_chunks: List[str], result: EventList):
-    df_metrics = pd.DataFrame()
-    os.environ["GOOGLE_API_KEY"] = os.getenv("google_api_key3") or "your_api_key_here"
-    original_result_df = pd.DataFrame([e.model_dump() for e in result.events])
-
-    client = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0)
-    structured_client = client.with_structured_output(ValidationFeedback)
-
-    validation_prompt = get_validation_prompt(search_chunks, result)
-
-    print("\nUsing Gemini API to validate KPIs...")
-    validation_response = structured_client.invoke(validation_prompt)
-
-    if validation_response:
-        validation_result = ValidationFeedback.model_validate(validation_response)
-    else:
-        print("No validation response received.")
-        return original_result_df
-
-    if not validation_result.is_accurate:
-        if validation_result.corrected_data:
-            print("Corrected data provided.")
-
-            corrected_result = EventList.model_validate(
-                validation_result.corrected_data
-            )
-
-            df_metrics = pd.DataFrame([e.model_dump() for e in corrected_result.events])
-
-        else:
-            print("No corrections needed.")
-            df_metrics = original_result_df
-
-    else:
-        print("Validation successful, no issues found.")
-        df_metrics = original_result_df
-
     return df_metrics
 
 
@@ -216,26 +177,10 @@ Output the result as a JSON list of `EventCatalyst` objects, like:
   EventCatalyst(...)
 ]
 """
-    # llm = ChatOpenAI(model="gpt-4o-2024-08-06", temperature=0)
-
-    # structured_llm = llm.with_structured_output(EventList)
-
-    # result: EventList = EventList.model_validate(structured_llm.invoke(llm_prompt))
-
-    # df_metrics = pd.DataFrame([e.model_dump() for e in result.events])
     print()
     print(len(llm_prompt), " - characters in prompt")
     print("Using Gemini API to extract KPIs...")
 
-    # client = genai.Client(api_key=os.getenv("google_api_key"))
-    # response = client.models.generate_content(
-    #     model="gemini-2.5-flash-preview-05-20",
-    #     contents=llm_prompt,
-    #     config={
-    #         "response_mime_type": "application/json",
-    #         "response_schema": EventList.model_json_schema(),
-    #     },
-    # )
     os.environ["GOOGLE_API_KEY"] = os.getenv("google_api_key") or "your_api_key_here"
     client = ChatGoogleGenerativeAI(model="gemini-2.5-pro", temperature=0)
     structured_client = client.with_structured_output(EventList)

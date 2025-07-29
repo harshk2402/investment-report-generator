@@ -81,13 +81,6 @@ class EventList(BaseModel):
     events: List[EventCatalyst]
 
 
-class ResponseFormatter(BaseModel):
-    """Always use this tool to structure your response to the user."""
-
-    answer: str = Field(description="The answer to the user's question")
-    followup_question: str = Field(description="A followup question the user could ask")
-
-
 class ValidationFeedback(BaseModel):
     is_accurate: bool = Field(
         description="True if the extracted data is fully accurate and complete according to the original text, False otherwise."
