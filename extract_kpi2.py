@@ -188,7 +188,9 @@ Output the result as a JSON list of `EventCatalyst` objects, like:
     response = structured_client.invoke(llm_prompt)
 
     result = None
-
+    if response is None:
+        print("No response from Gemini, returning empty DataFrame.")
+        return pd.DataFrame()
     result = EventList.model_validate(response)
 
     os.makedirs("output", exist_ok=True)

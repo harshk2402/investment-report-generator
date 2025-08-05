@@ -47,6 +47,11 @@ def classify_press_release_titles(titles: List[str]) -> List[str]:
         prompt += f"{i+1}. {title}\n"
 
     response = model.generate_content(prompt)
+
+    if not response.candidates or not response.candidates[0].content.parts:
+        print("Warning: no response from Gemini, skipping.")
+        return []
+
     text = response.text.strip()
 
     # Parse response lines that start with a number and extract the title text

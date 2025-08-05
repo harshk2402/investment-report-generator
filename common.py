@@ -44,12 +44,11 @@ def get_filing_sections(ticker="PRAX", start_date="2025-01-01") -> tuple:
     sec_api_key = adtiam.creds["sources"]["secapid2v"]["key"]
 
     company_data = {
+        "PRAX": {"cik": "0001689548", "name": "Praxis Precision Medicines Inc"},
+        "LLY": {"cik": "0000059478", "name": "Eli Lilly and Company"},
         "MNMD": {"cik": "0001813814", "name": "Mind Medicine (MindMed) Inc"},
         "PTCT": {"cik": "0001070081", "name": "PTC Therapeutics Inc"},
-        "BIIB": {"cik": "0000875045", "name": "Biogen Inc"},
-        "GILD": {"cik": "0000882095", "name": "Gilead Sciences Inc"},
         "VRTX": {"cik": "0000875320", "name": "Vertex Pharmaceuticals Inc"},
-        "PRAX": {"cik": "0001689548", "name": "Praxis Precision Medicines Inc"},
     }
 
     company_name = company_data.get(ticker, {}).get("name", ticker)

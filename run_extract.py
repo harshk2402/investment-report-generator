@@ -6,6 +6,7 @@ import pandas as pd
 from faiss_manager import FAISSManager
 import press_release
 from datetime import datetime
+import time
 
 
 def company():
@@ -23,14 +24,19 @@ def company():
         "%Y-%m-%d"
     )
 
-    filings, metadatas = common.get_filing_sections("PRAX", start_date)
-    vector_store.add_filings(filings, metadatas)
+    companies = ["PRAX", "LLY", "MNMD", "PTCT", "VRTX"]
 
-    filings, metadatas = press_release.get_press_releases(["PRAX"], start_date)
-    vector_store.add_filings(filings, metadatas, isPressRelease=True)
+    for company in companies:
+        filings, metadatas = common.get_filing_sections(company, start_date)
+        vector_store.add_filings(filings, metadatas)
+
+        filings, metadatas = press_release.get_press_releases([company], start_date)
+        vector_store.add_filings(filings, metadatas, isPressRelease=True)
+
+    k = 20
 
     documents = vector_store.similarity_search_with_context(
-        search_metric, k=30, window=2
+        search_metric, k=k, window=2
     )
 
     all_results = []
@@ -38,7 +44,16 @@ def company():
         documents, chunk_size=900000, chunk_overlap=0
     )
 
+    last_request_time = time.time() - 60
+
     for idx, chunk in enumerate(chunks):
+        time_since_last = time.time() - last_request_time
+
+        if time_since_last < 60:
+            time.sleep(60 - time_since_last)
+
+        last_request_time = time.time()
+
         print(f"Processing chunk {idx + 1}/{len(chunks)}")
         result = extract_kpi2.extract_kpi(search_metric, chunk)  # Via gemini api
         if result.size > 0:
