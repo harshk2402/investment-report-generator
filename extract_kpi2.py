@@ -17,7 +17,8 @@ os.environ["OPENAI_API_KEY"] = adtiam.creds["llm"]["openai"]
 
 
 def get_validation_prompt(
-    original_text_chunks: List[str], extracted_data: EventList
+    original_text_chunks: List[str],
+    extracted_data: EventList,
 ) -> str:
     today = datetime.now()
     formatted_date = today.strftime("%Y-%m-%d")
@@ -72,8 +73,6 @@ def batched_validate_output(search_chunks: List[str], result: EventList, batch_s
     all_events = result.events
     total_batches = math.ceil(len(all_events) / batch_size)
 
-    print("\nUsing Gemini API to validate KPIs (batched)...")
-
     for i in range(total_batches):
         batch_events = all_events[i * batch_size : (i + 1) * batch_size]
         partial_result = EventList(events=batch_events)
@@ -110,7 +109,9 @@ def batched_validate_output(search_chunks: List[str], result: EventList, batch_s
     return df_metrics
 
 
-def extract_kpi(search_metric, search_chunks):
+def extract_kpi(
+    search_metric, search_chunks, writer_raw: pd.ExcelWriter, company: str = "Unknown"
+):
     today = datetime.now()
     formatted_date = today.strftime("%Y-%m-%d")
 
@@ -189,19 +190,27 @@ Output the result as a JSON list of `EventCatalyst` objects, like:
 
     result = None
     if response is None:
-        print("No response from Gemini, returning empty DataFrame.")
+        print("No response from Gemini, retrying in 5s")
+        time.sleep(5)
+        response = structured_client.invoke(llm_prompt)
+
+    if response is None:
+        print("No response from Gemini after retry, returning empty result.")
         return pd.DataFrame()
+
     result = EventList.model_validate(response)
 
-    os.makedirs("output", exist_ok=True)
-    common.write_df_to_excel(
-        pd.DataFrame([e.model_dump() for e in result.events]),
-        "./output/kpi_original.xlsx",
-    )
+    df = pd.DataFrame([e.model_dump() for e in result.events])
+
+    if not df.empty:
+        df.to_excel(writer_raw, sheet_name=company, index=False)
+    else:
+        print(f"No data to write for {company}")
 
     df_metrics = pd.DataFrame()
 
     if result and result.events:
+        print(f"Validating {len(result.events)} extracted events from {company}...")
         df_metrics = batched_validate_output(search_chunks, result, 5)
 
     else:

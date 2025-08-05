@@ -1,7 +1,6 @@
 import os
 import json
 import hashlib
-import os
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
@@ -39,60 +38,61 @@ class FilingHashTracker:
 
 
 class FAISSManager:
-    def __init__(self, index_path="faiss_index"):
-        self.index_path = index_path
+    def __init__(self, index_dir="faiss_indexes"):
+        self.index_dir = index_dir
+        os.makedirs(self.index_dir, exist_ok=True)
         self.embedding_model = GoogleGenerativeAIEmbeddings(
             model="models/embedding-001"
         )
-        self.index = None
+        self.indexes = {}  # Map company ticker -> FAISS index instance
         self.hash_tracker = FilingHashTracker()
-        self.load_index()
 
-    def load_index(self):
-        if os.path.exists(self.index_path):
-            self.index = FAISS.load_local(
-                self.index_path,
+    def load_index(self, company):
+        index_path = os.path.join(self.index_dir, f"{company}.faiss")
+        if os.path.exists(index_path):
+            self.indexes[company] = FAISS.load_local(
+                index_path,
                 self.embedding_model,
                 allow_dangerous_deserialization=True,
             )
-            print(f"Loaded FAISS index from {self.index_path}")
+            print(f"Loaded FAISS index for {company} from {index_path}")
         else:
-            self.index = None
-            print("No existing FAISS index found.")
+            self.indexes[company] = None
+            print(f"No existing FAISS index found for {company}")
 
-    def save_index(self):
-        if self.index is not None:
-            self.index.save_local(self.index_path)
-            print(f"Saved FAISS index to {self.index_path}")
+    def save_index(self, company):
+        index_path = os.path.join(self.index_dir, f"{company}.faiss")
+        if self.indexes.get(company) is not None:
+            self.indexes[company].save_local(index_path)
+            print(f"Saved FAISS index for {company} to {index_path}")
 
-    def add_filings(self, filings, metadatas, isPressRelease=False):
-        print()
+    def add_filings(self, filings, metadatas, company, isPressRelease=False):
+        if company not in self.indexes:
+            self.load_index(company)
+
         splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         new_documents = []
         for filing_text, metadata in zip(filings, metadatas):
-            ticker = metadata.get("ticker")
+            ticker = metadata.get("ticker") or company
+
+            # Determine hash keys based on press release or not
             if not isPressRelease:
                 accession = metadata.get("accession")
                 form_type = metadata.get("form_type")
                 filing_date = metadata.get("filing_date")
 
                 if self.hash_tracker.is_indexed(accession, form_type, filing_date):
-                    print(f"Skipping already indexed filing {accession}")
+                    print(f"Skipping already indexed filing {accession} for {company}")
                     continue
-
             else:
-                ticker = ticker
                 form_type = "press release"
                 filing_date = metadata.get("filing_date")
 
                 if self.hash_tracker.is_indexed(ticker, form_type, filing_date):
-                    print(f"Skipping already indexed filing {ticker}")
+                    print(f"Skipping already indexed press release for {company}")
                     continue
 
-            # Chunk filing text
             chunks = splitter.split_text(filing_text)
-
-            # Convert chunks to Documents with metadata
             docs = []
             for idx, chunk in enumerate(chunks):
                 chunk_metadata = metadata.copy()
@@ -101,49 +101,50 @@ class FAISSManager:
 
             new_documents.extend(docs)
 
+            # Mark indexed after processing
             if not isPressRelease:
                 self.hash_tracker.mark_indexed(accession, form_type, filing_date)
             else:
-                ticker = ticker
                 self.hash_tracker.mark_indexed(ticker, form_type, filing_date)
 
         if not new_documents:
-            print("No new filings to add.")
+            print(f"No new filings to add for {company}.")
             return
 
-        if self.index is None:
-            print(f"Building new FAISS index with {len(new_documents)} chunks...")
-            self.index = FAISS.from_documents(new_documents, self.embedding_model)
+        if self.indexes[company] is None:
+            print(
+                f"Building new FAISS index for {company} with {len(new_documents)} chunks..."
+            )
+            self.indexes[company] = FAISS.from_documents(
+                new_documents, self.embedding_model
+            )
         else:
-            print(f"Adding {len(new_documents)} chunks to existing FAISS index...")
-            self.index.add_documents(new_documents)
+            print(
+                f"Adding {len(new_documents)} chunks to existing FAISS index for {company}..."
+            )
+            self.indexes[company].add_documents(new_documents)
 
-        self.save_index()
+        self.save_index(company)
 
-    def similarity_search(self, query, k=100):
-        if self.index is None:
-            raise RuntimeError("FAISS index is not built yet.")
-        return self.index.similarity_search(query, k=k)
+    def similarity_search(self, company, query, k=100):
+        if company not in self.indexes or self.indexes[company] is None:
+            raise RuntimeError(f"FAISS index for {company} not loaded.")
+        return self.indexes[company].similarity_search(query, k=k)
 
-    def similarity_search_with_context(self, query, k=35, window=1):
-        print(
-            f"Searching for '{query}' and retrieving top {k} chunks with window {window}..."
-        )
-        if self.index is None:
-            raise RuntimeError("FAISS index is not built yet.")
+    def similarity_search_with_context(self, company, query, k=35, window=1):
+        if company not in self.indexes or self.indexes[company] is None:
+            raise RuntimeError(f"FAISS index for {company} not loaded.")
 
-        # Step 1: Get top-k most similar chunks
-        top_docs = self.index.similarity_search(query, k=k)
+        # Step 1: Get top-k most similar chunks from that company's index
+        top_docs = self.indexes[company].similarity_search(query, k=k)
 
-        # Step 2: Load all chunks from docstore
-        all_chunks = list(self.index.docstore._dict.values())  # type: ignore
+        # Step 2: Load all chunks from docstore of that index
+        all_chunks = list(self.indexes[company].docstore._dict.values())  # type: ignore
 
         # Step 3: Organize chunks by filing id and index
         filing_chunks = {}
         for doc in all_chunks:
-            filing_id = doc.metadata.get(
-                "accession"
-            )  # or use combined key if you prefer
+            filing_id = doc.metadata.get("accession")
             chunk_idx = doc.metadata.get("chunk_index")
             if filing_id is not None and chunk_idx is not None:
                 filing_chunks.setdefault(filing_id, {})[chunk_idx] = doc
@@ -161,9 +162,9 @@ class FAISSManager:
                         key = (filing_id, neighbor_idx)
                         expanded_chunks[key] = neighbor_doc
 
-        print(f"Found {len(expanded_chunks)} chunks")
+        print(f"Found {len(expanded_chunks)} chunks for company {company}")
 
-        # Step 5: Return as list (sorted by filing and chunk index if desired)
+        # Step 5: Return as list (sorted by filing and chunk index)
         return sorted(
             expanded_chunks.values(),
             key=lambda d: (d.metadata.get("accession"), d.metadata.get("chunk_index")),
